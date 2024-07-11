@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leaflet Map with Overpass Query and OSRM Routing</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 400px;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .distance {
+            margin-top: 10px;
+        }
+        .btn-group {
+            margin-top: 10px;
+        }
+        .btn {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="controls">
+        <h4>Search for:</h4>
+        <select id="category">
+            <option value="beauty">Beauty Shops</option>
+            <option value="restaurant">Restaurants</option>
+            <!-- Add more options as needed -->
+        </select>
+        <button onclick="performQuery()">Search</button>
+
+        <div class="distance" id="distanceText">
+            Nearest: <span id="distance"></span> KM
+        </div>
+
+        <div class="btn-group">
+            <button class="btn" onclick="previousLocation()">Previous</button>
+            <button class="btn" onclick="nextLocation()">Next</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/osrm-routing/dist/osrm-routing.js"></script> <!-- Include OSRM routing library -->
+    <script>
+        var map = L.map('map').setView([-25.276987, -57.493829], 13);
+        var markers = L.layerGroup().addTo(map);
+        var locations = [];
+        var currentLocationIndex = -1;
+        var userLocation = null; // User's location will be obtained dynamically
+        var routingControl = null;
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // Function to initialize OSRM routing service
+        function initRoutingService() {
+            routingControl = L.Routing.control({
+                waypoints: [
+                    L.latLng(userLocation.lat, userLocation.lng), // Start point (user's location)
+                    L.latLng(0, 0) // End point (to be set dynamically)
+                ],
+                routeWhileDragging: false,
+                show: false,
+                createMarker: function() { return null; },
+                lineOptions: {
+                    styles: [{ color: 'red', opacity: 0.8, weight: 5 }]
+                },
+                router: new L.Routing.OSRMv1({
+                    serviceUrl: 'https://router.project-osrm.org/route/v1'
+                })
+            }).addTo(map);
+        }
+
+        // Function to perform Overpass query
+        function performQuery() {
+            var selectedCategory = document.getElementById('category').value;
+            var overpassUrl = 'https://overpass-api.de/api/interpreter?data=[out:json][timeout:25];' +
+                              'area["name"="Luque"]->.searchArea;' +
+                              'node["shop"="' + selectedCategory + '"](area.searchArea);' +
+                              'out body;';
+
+            $.ajax({
+                url: overpassUrl,
+                dataType: 'json',
+                success: function(data) {
+                    markers.clearLayers(); // Clear previous markers
+                    locations = data.elements;
+
+                    if (locations.length > 0) {
+                        currentLocationIndex = 0;
+                        showLocation(currentLocationIndex);
+                    } else {
+                        clearPath();
+                    }
+                }
+            });
+        }
+
+        // Function to show selected location
+        function showLocation(index) {
+            markers.clearLayers();
+            var location = locations[index];
+            var marker = L.marker([location.lat, location.lon]).addTo(markers);
+
+            // Add popup on hover
+            marker.bindPopup("<b>" + (location.tags.name ? location.tags.name : 'Unnamed') + "</b><br>" +
+                             "Type: " + document.getElementById('category').value).openPopup();
+
+            var destination = L.latLng(location.lat, location.lon);
+
+            // Update routing control with new destination
+            if (routingControl) {
+                routingControl.setWaypoints([
+                    L.latLng(userLocation.lat, userLocation.lng), // Start point (user's location)
+                    destination // End point (selected location)
+                ]);
+            } else {
+                initRoutingService();
+            }
+
+            // Calculate distance from current location to this point
+            var distance = userLocation.distanceTo(destination) / 1000; // Distance in kilometers
+
+            // Update distance text
+            document.getElementById('distance').textContent = distance.toFixed(2);
+
+            // Update map view to center on the selected location
+            map.setView([location.lat, location.lon], 15);
+        }
+
+        // Function to handle previous location button click
+        function previousLocation() {
+            if (locations.length === 0) return;
+            currentLocationIndex = (currentLocationIndex - 1 + locations.length) % locations.length;
+            showLocation(currentLocationIndex);
+        }
+
+        // Function to handle next location button click
+        function nextLocation() {
+            if (locations.length === 0) return;
+            currentLocationIndex = (currentLocationIndex + 1) % locations.length;
+            showLocation(currentLocationIndex);
+        }
+
+        // Function to clear routing path
+        function clearPath() {
+            if (routingControl) {
+                map.removeControl(routingControl);
+                routingControl = null;
+            }
+        }
+
+        // Function to get user's location
+        function getUserLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    userLocation = L.latLng(position.coords.latitude, position.coords.longitude);
+                    performQuery(); // Perform initial query after obtaining user's location
+                }, function(error) {
+                    console.error('Error getting user location:', error);
+                });
+            } else {
+                console.error('Geolocation is not supported by this browser.');
+            }
+        }
+
+        // Initialize by getting user's location
+        getUserLocation();
+    </script>
+</body>
+</html>
