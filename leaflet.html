@@ -135,29 +135,39 @@
         }
 
         // Function to perform Overpass query
-        function performQuery() {
-            var selectedCategory = document.getElementById('category').value;
-            var overpassUrl = 'https://overpass-api.de/api/interpreter?data=[out:json][timeout:25];' +
-                              'area["name"="Luque"]->.searchArea;' +
-                              'node["shop"="' + selectedCategory + '"](area.searchArea);' +
-                              'out body;';
+function performQuery() {
+    var selectedCategory = document.getElementById('category').value;
+    var overpassUrl = 'https://overpass-api.de/api/interpreter?data=[out:json][timeout:25];' +
+                      'area["name"="Luque"]->.searchArea;' +
+                      'node["shop"="' + selectedCategory + '"](area.searchArea);' +
+                      'out body;';
 
-            $.ajax({
-                url: overpassUrl,
-                dataType: 'json',
-                success: function(data) {
-                    markers.clearLayers(); // Clear previous markers
-                    locations = data.elements;
+    $.ajax({
+        url: overpassUrl,
+        dataType: 'json',
+        success: function(data) {
+            markers.clearLayers(); // Clear previous markers
+            locations = data.elements;
 
-                    if (locations.length > 0) {
-                        currentLocationIndex = 0;
-                        showLocation(currentLocationIndex);
-                    } else {
-                        clearPath();
-                    }
-                }
+            // Sort locations by distance from user's location
+            locations.sort(function(a, b) {
+                var locationA = L.latLng(a.lat, a.lon);
+                var locationB = L.latLng(b.lat, b.lon);
+                var distanceA = userLocation.distanceTo(locationA);
+                var distanceB = userLocation.distanceTo(locationB);
+                return distanceA - distanceB;
             });
+
+            if (locations.length > 0) {
+                currentLocationIndex = 0;
+                showLocation(currentLocationIndex);
+            } else {
+                clearPath();
+            }
         }
+    });
+}
+
 
         // Function to format tag display names
         function formatTag(tag) {
