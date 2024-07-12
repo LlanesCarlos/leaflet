@@ -6,18 +6,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <style>
-        #map {
-            height: 400px;
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
         }
-        .controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
+        header {
+            background-color: limegreen;
+            color: black;
+            text-align: center;
+            padding: 10px 0;
+            width: 100%;
             z-index: 1000;
+        }
+        #controls {
             background-color: white;
             padding: 10px;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            margin: 10px auto;
+            max-width: 100%;
+            text-align: center; 
+        }
+        #map-container {
+            height: calc(100% - 140px);
+            width: 100%;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
         }
         .distance {
             margin-top: 10px;
@@ -28,33 +45,43 @@
         .btn {
             margin-right: 10px;
         }
+        .leaflet-routing-container {
+            display: none;
+        }
     </style>
 </head>
 <body>
-    <div id="map"></div>
+    <header>
+        <h1>MVM - Mapa</h1>
+    </header>
 
-    <div class="controls">
-        <h4>Search for:</h4>
+    <div id="controls">
+        <h4>Buscar:</h4>
         <select id="category">
-            <option value="beauty">Beauty Shops</option>
-            <option value="restaurant">Restaurants</option>
+            <option value="beauty">Spa</option>
+            <option value="restaurant">Restaurante</option>
             <!-- Add more options as needed -->
         </select>
-        <button onclick="performQuery()">Search</button>
+        <button onclick="performQuery()">Buscar</button>
 
         <div class="distance" id="distanceText">
-            Nearest: <span id="distance"></span> KM
+            Más cercano: <span id="distance"></span> KM
         </div>
 
         <div class="btn-group">
-            <button class="btn" onclick="previousLocation()">Previous</button>
-            <button class="btn" onclick="nextLocation()">Next</button>
+            <button class="btn" onclick="previousLocation()">Anterior</button>
+            <button class="btn" onclick="nextLocation()">Siguiente</button>
         </div>
+    </div>
+
+    <div id="map-container">
+        <div id="map"></div>
     </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://unpkg.com/osrm-routing/dist/osrm-routing.js"></script> <!-- Include OSRM routing library -->
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/osrm-text-instructions/dist/index.js"></script>
     <script>
         var map = L.map('map').setView([-25.276987, -57.493829], 13);
         var markers = L.layerGroup().addTo(map);
@@ -70,17 +97,38 @@
         // Function to initialize OSRM routing service
         function initRoutingService() {
             routingControl = L.Routing.control({
-                waypoints: [
-                    L.latLng(userLocation.lat, userLocation.lng), // Start point (user's location)
-                    L.latLng(0, 0) // End point (to be set dynamically)
-                ],
+                waypoints: [],
                 routeWhileDragging: false,
                 show: false,
-                createMarker: function() { return null; },
+                createMarker: function(i, waypoint, n) {
+                    var markerOptions = {
+                        draggable: false
+                    };
+                    if (i === 0) {
+                        markerOptions.icon = L.icon({
+                            iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+                            shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                            shadowSize: [41, 41]
+                        });
+                    } else {
+                        markerOptions.icon = L.icon({
+                            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                            shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                            shadowSize: [41, 41]
+                        });
+                    }
+                    return L.marker(waypoint.latLng, markerOptions).bindPopup(i === 0 ? "Tu ubicación" : "Waypoint " + i);
+                },
                 lineOptions: {
                     styles: [{ color: 'red', opacity: 0.8, weight: 5 }]
                 },
-                router: new L.Routing.OSRMv1({
+                router: L.Routing.osrmv1({
                     serviceUrl: 'https://router.project-osrm.org/route/v1'
                 })
             }).addTo(map);
@@ -111,26 +159,45 @@
             });
         }
 
+        // Function to format tag display names
+        function formatTag(tag) {
+            var translations = {
+                "addr:street": "Calle",
+                "addr:housenumber": "Número",
+                // Add more translations as needed
+            };
+            return translations[tag] || tag;
+        }
+
         // Function to show selected location
         function showLocation(index) {
             markers.clearLayers();
             var location = locations[index];
             var marker = L.marker([location.lat, location.lon]).addTo(markers);
 
-            // Add popup on hover
-            marker.bindPopup("<b>" + (location.tags.name ? location.tags.name : 'Unnamed') + "</b><br>" +
-                             "Type: " + document.getElementById('category').value).openPopup();
+            // Add popup with relevant node information
+            var popupContent = "<b>" + (location.tags.name ? location.tags.name : 'Desconocido') + "</b><br>";
+            for (var tag in location.tags) {
+                if (tag !== 'name' && tag !== 'shop' && tag !== 'source') {
+                    popupContent += formatTag(tag) + ": " + location.tags[tag] + "<br>";
+                }
+            }
+            marker.bindPopup(popupContent).openPopup();
 
             var destination = L.latLng(location.lat, location.lon);
 
             // Update routing control with new destination
             if (routingControl) {
                 routingControl.setWaypoints([
-                    L.latLng(userLocation.lat, userLocation.lng), // Start point (user's location)
+                    userLocation, // Start point (user's location)
                     destination // End point (selected location)
                 ]);
             } else {
                 initRoutingService();
+                routingControl.setWaypoints([
+                    userLocation, // Start point (user's location)
+                    destination // End point (selected location)
+                ]);
             }
 
             // Calculate distance from current location to this point
@@ -139,8 +206,8 @@
             // Update distance text
             document.getElementById('distance').textContent = distance.toFixed(2);
 
-            // Update map view to center on the selected location
-            map.setView([location.lat, location.lon], 15);
+            // Fit the map bounds to show the entire route
+            map.fitBounds(L.latLngBounds([userLocation, destination]));
         }
 
         // Function to handle previous location button click
@@ -160,8 +227,7 @@
         // Function to clear routing path
         function clearPath() {
             if (routingControl) {
-                map.removeControl(routingControl);
-                routingControl = null;
+                routingControl.setWaypoints([]);
             }
         }
 
@@ -171,6 +237,16 @@
                 navigator.geolocation.getCurrentPosition(function(position) {
                     userLocation = L.latLng(position.coords.latitude, position.coords.longitude);
                     performQuery(); // Perform initial query after obtaining user's location
+                    var userMarker = L.marker(userLocation, {
+                        icon: L.icon({
+                            iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+                            shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                            shadowSize: [41, 41]
+                        })
+                    }).addTo(markers).bindPopup("Tu ubicación").openPopup();
                 }, function(error) {
                     console.error('Error getting user location:', error);
                 });
